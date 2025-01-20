@@ -1,0 +1,198 @@
+package se.kau.isgb33;
+
+import static spark.Spark.get;
+import static spark.Spark.post;
+
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.io.InputStream;
+import java.util.Properties;
+
+import org.apache.commons.text.WordUtils;
+import org.bson.Document;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import com.google.gson.JsonArray;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
+import com.mongodb.ConnectionString;
+import com.mongodb.MongoClientSettings;
+import com.mongodb.MongoException;
+import com.mongodb.client.DistinctIterable;
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoCursor;
+import com.mongodb.client.MongoDatabase;
+import com.mongodb.client.model.Filters;
+import com.mongodb.client.model.Projections;
+
+public class Stub {
+
+	public static void main(String[] args) { 
+		String connString; 
+		Logger logger = LoggerFactory.getLogger(Stub.class); 
+		try (InputStream input = new FileInputStream("connection.properties")) { 
+
+			Properties prop = new Properties(); 
+			prop.load(input); 
+			connString = prop.getProperty("db.connection_string"); 
+			logger.info(connString); //Loggar innehållet i connString
+
+			ConnectionString connectionString = new ConnectionString(connString); 
+			MongoClientSettings settings = MongoClientSettings.builder().applyConnectionString(connectionString)
+					.build(); 
+			MongoClient mongoClient = MongoClients.create(settings); 
+			MongoDatabase database = mongoClient.getDatabase(prop.getProperty("db.name")); 
+			
+			
+			get("/title/:title", (req,res)->{ 
+				MongoCollection<Document> collection = database.getCollection("Movies"); 
+			      String filter=req.params("title").toLowerCase(); 
+			      filter=WordUtils.capitalizeFully(filter);
+			      logger.info("Filtrerar filen: " + filter); 
+			      Document myDoc = collection.find(Filters.eq("title", filter)).first(); 
+		    	  if (myDoc != null) { 
+		    	      myDoc.remove("_id"); 
+		    	      myDoc.remove("poster"); 
+		    	      myDoc.remove("cast"); 
+		    	      myDoc.remove("fullplot"); 
+		    	    
+		    	  } else {
+		    		  res.status(404);
+		    		  return "{\"status\":\"Titel kunde ej hittas.\"}";
+		    	  }
+		    	  res.status(200); 
+		          return myDoc.toJson(); 
+		      }); 
+			
+			get("/fullplot/:title", (req,res)->{
+				MongoCollection<Document> collection = database.getCollection("Movies");
+			      String filter=req.params("title").toLowerCase();
+			      filter=WordUtils.capitalizeFully(filter);
+			      logger.info("Filtrerar filen efter fullplot: " + filter);
+			      Document myDoc = collection.find(Filters.eq("title", filter)).projection(Projections.include("title","fullplot")).first();
+		    	  if (myDoc != null) {
+		    	      myDoc.remove("_id");
+		    	      
+		    	  
+		    	  } else {
+		    		  res.status(404);
+		    		  return "{\"status\":\"Titel kunde ej hittas.\"}";
+		    	  }
+		    	  res.status(200);
+		          return myDoc.toJson();
+		      });
+			
+			get("/cast/:title", (req,res)->{
+				MongoCollection<Document> collection = database.getCollection("Movies");
+			      String filter=req.params("title").toLowerCase();
+			      filter=WordUtils.capitalizeFully(filter);
+			      logger.info("Filtrerar filen efter cast: " + filter);
+			      Document myDoc = collection.find(Filters.eq("title", filter)).projection(Projections.include("title","cast")).first();
+		    	  if (myDoc != null) {
+		    	      myDoc.remove("_id");
+		    	      
+		    	  
+		    	  } else {
+		    		  res.status(404);
+		    		  return "{\"status\":\"Cast kunde ej hittas.\"}";
+		    	  }
+		    	  res.status(200);
+		          return myDoc.toJson();
+		      });
+			
+			 get("/genres/:genres", (req, res) -> { 
+			    MongoCollection<Document> collection = database.getCollection("Movies"); 
+			    String filter = req.params("genres").toLowerCase(); 
+			    filter = WordUtils.capitalizeFully(filter); 
+			    logger.info("Filtrerar genres: " + filter); 
+			    MongoCursor<Document> cursor = collection.find(Filters.eq("genres", filter)) 
+			                                             .limit(10) 
+			                                             .iterator(); 
+			    
+			    JsonArray jsonResponse = new JsonArray(); //Skapar en tom JSON-array som ska innehålla resultaten
+			    while (cursor.hasNext()) { 
+			        Document myDoc = cursor.next(); 
+			        myDoc.remove("_id");
+			        myDoc.remove("poster");
+			        myDoc.remove("cast");
+			        myDoc.remove("fullplot");
+
+			        JsonObject jsonDoc = new JsonObject();
+			        myDoc.forEach((key, value) -> jsonDoc.addProperty(key, value.toString()));
+			        jsonResponse.add(jsonDoc);
+			    }
+			    
+			    if (jsonResponse.size() > 0) { 
+			        res.status(200); 
+			        res.type("application/json"); 
+			        return jsonResponse.toString(); 
+			    } else { 
+			        res.status(404);
+			        res.type("application/json");
+			        return "{\"status\":\"Kunde ej hittas.\"}"; 
+			    }
+			});
+
+			 
+			 get("/actor/:actor", (req, res) -> {
+			    MongoCollection<Document> collection = database.getCollection("Movies");
+			    String actorName = req.params("actor");
+			    logger.info("Letar efter filmer med skådespelare: " + actorName);
+			    
+			    MongoCursor<Document> cursor = collection.find(Filters.eq("cast", actorName))
+			     .projection(Projections.include("title"))
+			                                             .limit(10)
+			                                             .iterator();
+			    
+			    JsonArray jsonResponse = new JsonArray(); 
+			    while (cursor.hasNext()) {
+			        Document myDoc = cursor.next();
+			        myDoc.remove("_id");
+			        JsonObject jsonDoc = new JsonObject();
+			        myDoc.forEach((key, value) -> jsonDoc.addProperty(key, value.toString())); 
+			        jsonResponse.add(jsonDoc);
+			    }
+			    
+			    if (jsonResponse.size() > 0) {
+			        res.status(200);
+			        res.type("application/json");
+			        return jsonResponse.toString(); 
+			    } else {
+			        res.status(404);
+			        res.type("application/json");
+			        return "{\"status\":\"Kunde ej hittas.\"}";
+			    }
+			});
+			
+		    post("/title", (request, response) -> { 
+		    	    response.type("application/json"); 
+		    	    try { 
+		    	    	MongoCollection<Document> collection = database.getCollection("Movies"); 
+		               collection.insertOne(new Document(Document.parse(request.body())));
+		 		      logger.info("Lägger till titel "); 
+
+		                       
+		            } catch (MongoException me) {
+		                System.err.println("Error: " + me); 
+		            }
+		    	    
+		    	    response.status(202); 
+		    		  return "{\"status\":\"Kunde ej finna.\"}"; 
+		    	});
+
+				
+
+		} catch (FileNotFoundException e) { 
+			e.printStackTrace(); 
+		} catch (IOException e) { 
+			e.printStackTrace(); 
+		}
+		
+	}
+
+}
+
